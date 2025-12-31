@@ -1,0 +1,7 @@
+{
+  "name": "Travel.AI",
+  "description": "An intelligent travel planning application that uses AI to generate personalized itineraries for exploring cities and attending events. It helps users discover tourist spots, create day-by-day plans with special event suggestions, and track their journey.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
