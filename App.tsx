@@ -26,8 +26,8 @@ const App: React.FC = () => {
   const [isFetchingCity, setIsFetchingCity] = useState(false);
   const [initialCityName, setInitialCityName] = useState("");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<AIProvider>('gemini');
   
-
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -69,8 +69,8 @@ const App: React.FC = () => {
     setIsFetchingCity(true);
     setInitialCityName(cityData.name);
     setCurrentPage(Page.SPOTS);
-    // Pass 'gemini' explicitly
-    const detailedCityInfo = await getCityInfo(cityData.name, 'gemini');
+    // Pass selectedProvider explicitly
+    const detailedCityInfo = await getCityInfo(cityData.name, selectedProvider);
     
     if (detailedCityInfo) {
       setSelectedCity(detailedCityInfo);
@@ -140,7 +140,7 @@ const App: React.FC = () => {
         
         return <DestinationPage 
             onSelectCity={handleSelectCity} 
-            provider={'gemini'} 
+            provider={selectedProvider} 
             previousPlan={itinerary} 
             onResumePlan={() => setCurrentPage(Page.PLAN)}
             // Ensure we are passing the full history array
@@ -165,16 +165,16 @@ const App: React.FC = () => {
         return <SpotsPage city={selectedCity} onBack={handleBack} onContinue={handleSelectSpots} />;
       case Page.PLAN:
         if (!selectedCity) {
-            return <DestinationPage onSelectCity={handleSelectCity} provider={'gemini'} />;
+            return <DestinationPage onSelectCity={handleSelectCity} provider={selectedProvider} />;
         }
-        return <PlanPage city={selectedCity} selectedSpots={selectedSpots} onPlanGenerated={handlePlanGenerated} itinerary={itinerary} onNavigateToTracker={handleNavigateToTracker} onNavigateToBookGuide={handleNavigateToBookGuide} isSharedView={false} provider={'gemini'} />;
+        return <PlanPage city={selectedCity} selectedSpots={selectedSpots} onPlanGenerated={handlePlanGenerated} itinerary={itinerary} onNavigateToTracker={handleNavigateToTracker} onNavigateToBookGuide={handleNavigateToBookGuide} isSharedView={false} provider={selectedProvider} />;
       case Page.TRACKER:
         return <TrackerPage />;
       case Page.BOOK_GUIDE:
-        if (!selectedCity) return <DestinationPage onSelectCity={handleSelectCity} provider={'gemini'} />;
-        return <BookGuidePage city={selectedCity} showToast={showToast} provider={'gemini'} />;
+        if (!selectedCity) return <DestinationPage onSelectCity={handleSelectCity} provider={selectedProvider} />;
+        return <BookGuidePage city={selectedCity} showToast={showToast} provider={selectedProvider} />;
       case Page.RIDE_BY: // Added case for RideByPage
-        return <RideByPage provider={'gemini'} />;
+        return <RideByPage provider={selectedProvider} />;
       case Page.SHARED_PLAN:
         if (!itinerary) return <LoginPage onLogin={handleLogin} />;
         
@@ -194,7 +194,7 @@ const App: React.FC = () => {
             onNavigateToTracker={() => {}}
             onNavigateToBookGuide={() => {}}
             isSharedView={true}
-            provider={'gemini'}
+            provider={selectedProvider}
         />;
       default:
         return <LoginPage onLogin={handleLogin} />;
@@ -218,7 +218,7 @@ const App: React.FC = () => {
         <div className="fixed bottom-20 right-10 w-96 h-96 bg-blue-500/20 rounded-full blur-[100px] animate-float -z-10" style={{ animationDelay: '2s' }}></div>
 
         {/* Model Selector UI - Hidden as requested */}
-        {/* {currentPage !== Page.LOGIN && currentPage !== Page.SHARED_PLAN && (
+        {currentPage !== Page.LOGIN && currentPage !== Page.SHARED_PLAN && (
             <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-slate-900/40 backdrop-blur-xl p-1.5 rounded-full border border-white/10 shadow-2xl">
                 <button 
                     onClick={() => setSelectedProvider('gemini')}
@@ -238,8 +238,14 @@ const App: React.FC = () => {
                 >
                     Grok
                 </button>
+                <button 
+                    onClick={() => setSelectedProvider('qwen')}
+                    className={`px-4 py-2 rounded-full text-xs font-bold transition-all duration-300 ${selectedProvider === 'qwen' ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                >
+                    Qwen
+                </button>
             </div>
-        )} */}
+        )}
 
       {/* Navbar */}
       {currentPage !== Page.LOGIN && currentPage !== Page.SHARED_PLAN && (

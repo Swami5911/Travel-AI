@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { getRideRoute, AIProvider } from '../services/aiService';
+import { getRideRoute, processVoiceCommand, VoiceResponse, AIProvider } from '../services/aiService';
+import { getRealTimeAQI } from '../services/weatherService';
 import { RideRoute, RideStop } from '../types';
 import { MapPin, Navigation, Bike, Car, AlertTriangle, Coffee, Fuel, Clock, CheckCircle, Cloud, Sun, CloudRain, Wind, Info, X, ChevronRight } from 'lucide-react';
+import VoiceAssistant from './VoiceAssistant';
+import MusicPlayer from './MusicPlayer';
 import LoadingIndicator from './LoadingSpinner';
 
 interface RideByPageProps {
@@ -49,6 +52,72 @@ const RideByPage: React.FC<RideByPageProps> = ({ provider = 'gemini' }) => {
         if (w.includes('wind')) return <Wind className="h-6 w-6 text-slate-300" />;
         return <Sun className="h-6 w-6 text-yellow-400" />;
     };
+
+    // --- Voice Assistant Logic ---
+    const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking'>('idle');
+    const [isActiveMode, setIsActiveMode] = useState(false);
+    const [musicState, setMusicState] = useState<{isPlaying: boolean, track: string | null}>({ isPlaying: false, track: null });
+
+
+    // Tts with Voice Selection
+    // Tts with Voice Selection
+    const speak = React.useCallback((text: string) => {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel(); // Stop current speech
+            const utterance = new SpeechSynthesisUtterance(text);
+            
+            // Voice Selection Logic
+            const voices = window.speechSynthesis.getVoices();
+            // Priority: Google US English -> Microsoft Zira -> Any Female/Natural -> Default
+            const preferredVoice = voices.find(v => v.name.includes("Google US English")) 
+                                || voices.find(v => v.name.includes("Zira")) 
+                                || voices.find(v => v.name.includes("Samantha"))
+                                || voices.find(v => v.lang === 'en-US' && v.name.includes("Female"));
+            
+            if (preferredVoice) utterance.voice = preferredVoice;
+            
+            utterance.rate = 1.1; // Slightly faster
+            utterance.pitch = 1.05; // Slightly higher
+
+            utterance.onstart = () => setVoiceStatus('speaking');
+            utterance.onend = () => setVoiceStatus('idle');
+            utterance.onerror = (e) => {
+                console.error("TTS Error:", e);
+                setVoiceStatus('idle');
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
+    }, []);
+
+    const handleSpeechResult = React.useCallback(async (transcript: string) => {
+        setVoiceStatus('processing');
+        console.log("User said:", transcript);
+
+        try {
+            const context = {
+                location: origin && destination ? `Driving from ${origin} to ${destination}` : "On the road",
+                route: route ? { duration: route.duration, distance: route.distance } : undefined
+            };
+            
+            const response: VoiceResponse = await processVoiceCommand(transcript, context);
+            
+            if (response.type === 'MUSIC') {
+                if (response.action === 'play') setMusicState(prev => ({ ...prev, isPlaying: true, track: response.track || prev.track }));
+                if (response.action === 'pause') setMusicState(prev => ({ ...prev, isPlaying: false }));
+                if (response.action === 'next') setMusicState(prev => ({ ...prev, track: "Skipped Track" })); // Mock
+                
+                speak(response.text);
+            } else {
+                speak(response.text);
+            }
+
+        } catch (e) {
+            console.error("Voice processing error:", e);
+            speak("Sorry, I had a bit of a brain fart. Can you say that again?");
+            setVoiceStatus('idle');
+        }
+    }, [origin, destination, route, speak]);
 
     return (
         <div className="container mx-auto px-4 py-12 max-w-7xl">
@@ -346,6 +415,26 @@ const RideByPage: React.FC<RideByPageProps> = ({ provider = 'gemini' }) => {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Travel Buddy Voice & Music UI */}
+            {(route || isLoading) && (
+                <>
+                    <div className="fixed top-24 right-4 z-40 w-64 md:w-80">
+                        <MusicPlayer 
+                            isPlayingExternal={musicState.isPlaying} 
+                            currentTrackName={musicState.track}
+                            onPlayStateChange={(playing) => setMusicState(prev => ({ ...prev, isPlaying: playing }))}
+                        />
+                    </div>
+                    <VoiceAssistant 
+                        onSpeechResult={handleSpeechResult} 
+                        isSpeaking={voiceStatus === 'speaking'}
+                        status={voiceStatus}
+                        isActiveMode={isActiveMode}
+                        onToggleActiveMode={() => setIsActiveMode(!isActiveMode)}
+                    />
+                </>
             )}
         </div>
     );

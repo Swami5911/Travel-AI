@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { City, Guide } from '../types';
-import { generateGuides } from '../services/aiService';
+import { generateGuides, AIProvider } from '../services/aiService';
 import { User, Star, MapPin, ShieldCheck, Loader2, MessageCircle, Calendar } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 import SkeletonLoader from './SkeletonLoader';
@@ -8,7 +8,7 @@ import SkeletonLoader from './SkeletonLoader';
 interface BookGuidePageProps {
   city: City;
   showToast: (message: string) => void;
-  provider?: 'gemini' | 'openai' | 'grok';
+  provider?: AIProvider;
 }
 
 export const BookGuidePage: React.FC<BookGuidePageProps> = ({ city, showToast, provider = 'gemini' }) => {

@@ -13,7 +13,7 @@ interface PlanPageProps {
   onNavigateToTracker: () => void;
   onNavigateToBookGuide: () => void;
   isSharedView: boolean;
-  provider?: 'gemini' | 'openai' | 'grok';
+  provider?: AIProvider;
 }
 
 const PlanPage: React.FC<PlanPageProps> = ({ city, selectedSpots, itinerary, onPlanGenerated, onNavigateToTracker, onNavigateToBookGuide, isSharedView, provider = 'gemini' }) => {

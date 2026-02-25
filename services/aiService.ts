@@ -5,27 +5,42 @@ import { fetchImage } from './imageService';
 import { getRealTimeAQI } from './weatherService';
 
 // --- Configuration ---
-export type AIProvider = 'gemini' | 'openai' | 'grok';
+export type AIProvider = 'gemini' | 'openai' | 'grok' | 'groq' | 'openrouter';
 
+// --- Clients ---
 const getGeminiClient = () => {
   const customKey = localStorage.getItem('GEMINI_API_KEY');
   // @ts-ignore
   const envKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : import.meta.env.VITE_GEMINI_API_KEY;
-  return new GoogleGenAI({ apiKey: customKey || envKey || '' });
+  const apiKey = customKey || envKey || '';
+  if (!apiKey) throw new Error("Gemini API Key is missing. Please configure it in the Login screen or .env file.");
+  return new GoogleGenAI({ apiKey });
 };
 
 const openaiClient = new OpenAI({
   // @ts-ignore
-  apiKey: (typeof process !== 'undefined' && process.env) ? process.env.OPENAI_API_KEY : '', 
+  apiKey: (typeof process !== 'undefined' && process.env) ? process.env.OPENAI_API_KEY : import.meta.env.VITE_OPENAI_API_KEY, 
   dangerouslyAllowBrowser: true 
 });
 
 const grokClient = new OpenAI({
   // @ts-ignore
-  apiKey: (typeof process !== 'undefined' && process.env) ? process.env.GROK_API_KEY : '',
+  apiKey: (typeof process !== 'undefined' && process.env) ? process.env.GROK_API_KEY : import.meta.env.VITE_GROK_API_KEY,
   baseURL: "https://api.x.ai/v1", 
   dangerouslyAllowBrowser: true
 });
+
+const openRouterClient = new OpenAI({
+  // @ts-ignore
+  apiKey: (typeof process !== 'undefined' && process.env) ? process.env.OPENROUTER_API_KEY : import.meta.env.VITE_OPENROUTER_API_KEY,
+  baseURL: "https://openrouter.ai/api/v1",
+  dangerouslyAllowBrowser: true,
+  defaultHeaders: {
+    "HTTP-Referer": "https://travel.ai", // Optional, for including your app on openrouter.ai rankings.
+    "X-Title": "Travel.AI", // Optional. Shows in rankings on openrouter.ai.
+  }
+});
+
 
 // --- Caching ---
 const CACHE_PREFIX = 'ai_cache_v2_'; // Changed prefix to invalidate old cache with images
@@ -67,74 +82,172 @@ async function fetchJson<T>(prompt: string, schema: any, provider: AIProvider = 
     console.warn("Cache read failed", e);
   }
 
-  // 2. Fetch from Provider
-  try {
-    let data: T;
+  // Fetch from Provider with Retry Logic (specifically for Gemini)
+  let attempts = 0;
+  // Retry only for rate limits on Gemini
+  const maxAttempts = provider === 'gemini' ? 3 : 1; 
+  let delay = 2000;
 
-    if (provider === 'gemini') {
-      const client = getGeminiClient();
-      const response = await client.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: schema,
-        },
-      });
-      
-      if (!response.text) throw new Error("Empty response from Gemini");
-      let jsonText = response.text; // It's a getter
-      
-      // Sanitization: Remove Markdown code blocks if present (Gemini sometimes adds them despite mimeType)
-      if (typeof jsonText === 'string') {
-          jsonText = jsonText.replace(/```json\n?|\n?```/g, '').trim();
-      }
-      
-      data = JSON.parse(jsonText) as T;
-
-    } else if (provider === 'openai') {
-      const response = await openaiClient.chat.completions.create({
-        model: "gpt-4o-mini", // Optimized for speed
-        messages: [
-            { role: "system", content: "You are a helpful travel assistant. You must output valid JSON." },
-            { role: "user", content: `${prompt}\n\nOutput strictly in this JSON schema format:\n${JSON.stringify(schema, null, 2)}` }
-        ],
-        response_format: { type: "json_object" },
-      });
-      const content = response.choices[0].message.content;
-      if (!content) throw new Error("Empty response from OpenAI");
-      data = JSON.parse(content) as T;
-
-    } else if (provider === 'grok') {
-       const response = await grokClient.chat.completions.create({
-        model: "grok-beta", 
-        messages: [
-            { role: "system", content: "You are a helpful travel assistant. You must output valid JSON." },
-            { role: "user", content: `${prompt}\n\nOutput strictly in this JSON schema format:\n${JSON.stringify(schema, null, 2)}` }
-        ],
-      });
-      const content = response.choices[0].message.content;
-      if (!content) throw new Error("Empty response from Grok");
-      const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
-      data = JSON.parse(cleanContent) as T;
-    } else {
-        throw new Error("Invalid provider");
-    }
-
-    // 3. Save to Cache
+  while (attempts < maxAttempts) {
     try {
-      localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data }));
-    } catch (e) {
-      console.warn("Cache write failed", e);
+      let data: T;
+
+      if (provider === 'gemini') {
+        const client = getGeminiClient();
+        const response = await client.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+          },
+        });
+        
+        console.log(`[AI Debug] ${provider} response:`, response); // Debug log
+
+        if (!response.text) {
+            console.error("[AI Debug] Missing text in response. Candidates:", JSON.stringify(response.candidates, null, 2));
+            throw new Error("Empty response from Gemini");
+        }
+        let jsonText = response.text; // It's a getter
+        
+        // Sanitization: Remove Markdown code blocks if present (Gemini sometimes adds them despite mimeType)
+        if (typeof jsonText === 'string') {
+            jsonText = jsonText.replace(/```json\n?|\n?```/g, '').trim();
+        }
+        
+        data = JSON.parse(jsonText) as T;
+
+      } else if (provider === 'groq') {
+        const customKey = localStorage.getItem('GROQ_API_KEY');
+        // @ts-ignore
+        const envKey = (typeof process !== 'undefined' && process.env) ? process.env.GROQ_API_KEY : import.meta.env.VITE_GROQ_API_KEY;
+        const apiKey = customKey || envKey;
+
+        if (!apiKey) throw new Error("Groq API Key is missing.");
+
+        // Transient client for Groq to use latest key
+        const groqClient = new OpenAI({
+            apiKey: apiKey,
+            baseURL: "https://api.groq.com/openai/v1",
+            dangerouslyAllowBrowser: true
+        });
+
+        // Helper to convert Google GenAI Schema Enum to readable strings for Llama/OpenAI
+        const cleanSchema = JSON.parse(JSON.stringify(schema, (key, value) => {
+             if (value === Type.STRING) return "string";
+             if (value === Type.NUMBER) return "number";
+             if (value === Type.INTEGER) return "integer";
+             if (value === Type.BOOLEAN) return "boolean";
+             if (value === Type.ARRAY) return "array";
+             if (value === Type.OBJECT) return "object";
+             return value;
+        }));
+
+        try {
+            const response = await groqClient.chat.completions.create({
+              model: "llama-3.3-70b-versatile", 
+              messages: [
+                  { role: "system", content: "You are a helpful travel assistant. You must output valid JSON." },
+                  { role: "user", content: `${prompt}\n\nOutput strictly in this JSON schema format:\n${JSON.stringify(cleanSchema, null, 2)}` }
+              ],
+              response_format: { type: "json_object" },
+            });
+            
+            const content = response.choices[0].message.content;
+            if (!content) throw new Error("Empty response from Groq");
+            data = JSON.parse(content) as T;
+        } catch (err: any) {
+            console.error("Groq API Error Detail:", err);
+            throw err; // Re-throw to trigger the main catch block or return null there
+        }
+
+      } else if (provider === 'openai') {
+        const response = await openaiClient.chat.completions.create({
+          model: "gpt-4o-mini", // Optimized for speed
+          messages: [
+              { role: "system", content: "You are a helpful travel assistant. You must output valid JSON." },
+              { role: "user", content: `${prompt}\n\nOutput strictly in this JSON schema format:\n${JSON.stringify(schema, null, 2)}` }
+          ],
+          response_format: { type: "json_object" },
+        });
+        const content = response.choices[0].message.content;
+        if (!content) throw new Error("Empty response from OpenAI");
+        data = JSON.parse(content) as T;
+
+      } else if (provider === 'grok') {
+         const response = await grokClient.chat.completions.create({
+          model: "grok-beta", 
+          messages: [
+              { role: "system", content: "You are a helpful travel assistant. You must output valid JSON." },
+              { role: "user", content: `${prompt}\n\nOutput strictly in this JSON schema format:\n${JSON.stringify(schema, null, 2)}` }
+          ],
+        });
+        const content = response.choices[0].message.content;
+        if (!content) throw new Error("Empty response from Grok");
+        const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
+        data = JSON.parse(cleanContent) as T;
+
+      } else if (provider === 'openrouter') {
+          // Helper to convert Google GenAI Schema Enum to readable strings for Llama/OpenAI
+        const cleanSchema = JSON.parse(JSON.stringify(schema, (key, value) => {
+            if (value === Type.STRING) return "string";
+            if (value === Type.NUMBER) return "number";
+            if (value === Type.INTEGER) return "integer";
+            if (value === Type.BOOLEAN) return "boolean";
+            if (value === Type.ARRAY) return "array";
+            if (value === Type.OBJECT) return "object";
+            return value;
+       }));
+
+       const response = await openRouterClient.chat.completions.create({
+        model: "google/gemini-2.0-flash-exp:free", // Default free model
+        messages: [
+            { role: "system", content: "You are a helpful travel assistant. You must output valid JSON." },
+            { role: "user", content: `${prompt}\n\nOutput strictly in this JSON schema format:\n${JSON.stringify(cleanSchema, null, 2)}` }
+        ],
+        // response_format: { type: "json_object" }, // Not all OpenRouter models support this, so we might need to be careful.
+      });
+
+      const content = response.choices[0].message.content;
+      if (!content) throw new Error("Empty response from OpenRouter");
+       // Try to parse JSON from content, handling potential markdown code blocks
+       const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
+       data = JSON.parse(cleanContent) as T;
+
+      } else {
+          throw new Error("Invalid provider");
+      }
+
+      // 3. Save to Cache
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data }));
+      } catch (e) {
+        console.warn("Cache write failed", e);
+      }
+
+      return data;
+
+    } catch (error: any) {
+      console.error(`Error fetching from ${provider} (Attempt ${attempts + 1}):`, error);
+
+      if (provider === 'gemini' && (error.status === 429 || error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('exhausted'))) {
+        attempts++;
+        if (attempts >= maxAttempts) {
+           alert(`${provider.toUpperCase()} Quota Exceeded. Please try again later.`);
+           return null;
+        }
+        console.log(`[${provider}] Quota hit. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2; 
+        continue;
+      }
+
+      alert(`${provider.toUpperCase()} Error: ${error.message || error}`);
+      return null;
     }
-
-    return data;
-
-  } catch (error: any) {
-    console.error(`Error fetching from ${provider}:`, error);
-    alert(`${provider.toUpperCase()} Error: ${error.message || error}`);
-    return null;
   }
+  return null;
 }
 
 // --- Schemas (Modified to remove images) ---
@@ -411,4 +524,113 @@ export const getRideRoute = async (origin: string, destination: string, vehicleT
         ...route,
         stops: hydratedStops
     };
+};
+
+
+// --- Voice Assistant & Model Router ---
+
+// Mock function for music control (in a real app, this would interface with Spotify/Apple Music)
+const handleMusicCommand = (command: string): { type: 'MUSIC', action: string, track?: string } => {
+    const lower = command.toLowerCase();
+    if (lower.includes('play')) return { type: 'MUSIC', action: 'play', track: lower.replace('play', '').trim() };
+    if (lower.includes('pause') || lower.includes('stop')) return { type: 'MUSIC', action: 'pause' };
+    if (lower.includes('next') || lower.includes('skip')) return { type: 'MUSIC', action: 'next' };
+    return { type: 'MUSIC', action: 'unknown' };
+};
+
+export type VoiceResponse = 
+    | { type: 'CHAT', text: string }
+    | { type: 'INFO', text: string }
+    | { type: 'MUSIC', action: string, track?: string, text: string };
+
+export const processVoiceCommand = async (
+    transcript: string, 
+    context: { location?: string; route?: any; },
+    history: any[] = []
+): Promise<VoiceResponse> => {
+    
+    // 1. Intent Classification (Simple Rule-based + fallback to AI if complex)
+    const lower = transcript.toLowerCase();
+    
+    // MUSIC INTENT
+    if (lower.includes('play') || lower.includes('pause') || lower.includes('skip song') || lower.includes('next song') || lower.includes('music')) {
+        const musicAction = handleMusicCommand(transcript);
+        let respText = "Okay.";
+        if (musicAction.action === 'play') respText = `Playing ${musicAction.track || 'music'} for you.`;
+        if (musicAction.action === 'pause') respText = "Pausing music.";
+        if (musicAction.action === 'next') respText = "Skipping track.";
+        
+        return { ...musicAction, text: respText };
+    }
+
+    // LOCATION/INFO INTENT -> GEMINI
+    if (lower.includes('where am i') || lower.includes('location') || lower.includes('tell me about') || lower.includes('history') || lower.includes('what is this')) {
+        const prompt = `
+            User Question: "${transcript}"
+            Current Location/Context: ${JSON.stringify(context)}
+            You are a knowledgeable travel guide. Answer the user's question about the location or landmark briefly and interestingly.
+            Keep it under 3 sentences.
+        `;
+        const geminiResp = await fetchJson<{answer: string}>(prompt, { type: Type.OBJECT, properties: { answer: { type: Type.STRING } } }, 'gemini');
+        return { type: 'INFO', text: geminiResp?.answer || "I couldn't find info on that." };
+    }
+
+    // GENERAL CHAT INTENT -> GROQ (Fastest) -> OPENROUTER (Cheaper/Free) -> GEMINI (Fallback)
+    try {
+        const systemPrompt = `
+            You are a fun, energetic Travel Buddy riding in the car with the user.
+            Your persona: Helpful, witty, loves travel and music.
+            Context: User is currently at/near ${context.location || 'unknown location'}.
+            Keep responses conversational, short (1-2 sentences), and engaging.
+            Do NOT include markdown formatting. Just plain text.
+        `;
+        
+        // Prioritize Groq if available for speed, then OpenRouter, then Gemini
+        const groqKey = localStorage.getItem('GROQ_API_KEY') || import.meta.env.VITE_GROQ_API_KEY;
+        const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || import.meta.env.VITE_OPENROUTER_API_KEY;
+
+        let provider: AIProvider = 'gemini';
+        if (groqKey) provider = 'groq';
+        else if (openRouterKey) provider = 'openrouter';
+
+        const prompt = `
+            ${systemPrompt}
+            User said: "${transcript}"
+            Reply to the user.
+        `;
+        
+        // OPTIMIZATION: Request Plain Text instead of JSON for Chat (Faster & Cheaper)
+        // We use a trick: pass null schema to generic fetchJson or handle text mode. 
+        // Since fetchJson forces JSON, we'll wrap the text call here or modify fetchJson.
+        // Let's use a specialized "fetchText" or just rely on the existing one but with a simpler schema string constraint if needed.
+        // BETTER: Just ask for JSON { "reply": "text" } is fine, but let's relax system prompt constraints.
+        
+        // ACTUALLY: The user's specific complaint "I didn't quite catch that" often comes from JSON parse errors.
+        // Let's simplify the prompt to be extremely robust.
+        
+        const resp = await fetchJson<{reply: string}>(prompt, { type: Type.OBJECT, properties: { reply: { type: Type.STRING } } }, provider);
+        
+        return { type: 'CHAT', text: resp?.reply || "I didn't quite catch that, but I'm having a great time!" };
+
+    } catch (e) {
+        console.warn("Primary chat provider failed, falling back to Gemini:", e);
+        // Fallback to Gemini if other providers failed
+        try {
+            const systemPrompt = `
+                You are a fun, energetic Travel Buddy riding in the car with the user.
+                Your persona: Helpful, witty, loves travel and music.
+                Context: User is currently at/near ${context.location || 'unknown location'}.
+                Keep responses conversational, short (1-2 sentences), and engaging.
+            `;
+            const geminiPrompt = `
+                ${systemPrompt}
+                User said: "${transcript}"
+                Reply to the user.
+            `;
+             const geminiResp = await fetchJson<{reply: string}>(geminiPrompt, { type: Type.OBJECT, properties: { reply: { type: Type.STRING } } }, 'gemini');
+             return { type: 'CHAT', text: geminiResp?.reply || "I'm still learning, but I'm happy to be here!" };
+        } catch (geminiError) {
+             return { type: 'CHAT', text: "I'm having trouble connecting to my chat brain right now." };
+        }
+    }
 };

@@ -2,8 +2,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Itinerary, TouristSpot, City, Country, State, CityInfo, Guide } from '../types';
 
 if (
-  !process.env.API_KEY ||
-  process.env.API_KEY === "YOUR_GEMINI_API_KEY_HERE"
+  !import.meta.env.VITE_GEMINI_API_KEY ||
+  import.meta.env.VITE_GEMINI_API_KEY === "YOUR_GEMINI_API_KEY_HERE"
 ) {
   const userFriendlyMessage =
     "Gemini API key not found. Please open index.html and replace 'YOUR_GEMINI_API_KEY_HERE' with your actual key.";
@@ -33,7 +33,7 @@ if (
   throw new Error("API_KEY is not set.");
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
 // Generic function to handle Gemini API calls with structured JSON output
 const CACHE_PREFIX = 'gemini_cache_';
@@ -75,45 +75,66 @@ async function fetchJson<T>(prompt: string, schema: object): Promise<T | null> {
     console.warn("Failed to read from cache", e);
   }
 
-  // Fetch from API
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: schema,
-      },
-    });
+  // Fetch from API with Retry Logic
+  let attempts = 0;
+  const maxAttempts = 3;
+  let delay = 2000;
 
-    // Check if text exists
-    if (!response.text) {
-       console.error("Gemini API returned empty response:", response);
-       throw new Error("Received empty response from AI model.");
-    }
-
-    const jsonText = response.text;
-    const data = JSON.parse(jsonText) as T;
-
-    // Save to cache
+  while (attempts < maxAttempts) {
     try {
-      const cacheItem: CacheItem<T> = {
-        timestamp: Date.now(),
-        data,
-      };
-      localStorage.setItem(cacheKey, JSON.stringify(cacheItem));
-    } catch (e) {
-      console.warn("Failed to save to cache (likely quota exceeded)", e);
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+        },
+      });
+
+      // Check if text exists
+      if (!response.text) {
+         console.error("Gemini API returned empty response:", response);
+         throw new Error("Received empty response from AI model.");
+      }
+
+      const jsonText = response.text;
+      const data = JSON.parse(jsonText) as T;
+
+      // Save to cache
+      try {
+        const cacheItem: CacheItem<T> = {
+          timestamp: Date.now(),
+          data,
+        };
+        localStorage.setItem(cacheKey, JSON.stringify(cacheItem));
+      } catch (e) {
+        console.warn("Failed to save to cache (likely quota exceeded)", e);
+      }
+
+      return data;
+
+    } catch (error: any) {
+      console.error(`Attempt ${attempts + 1} failed:`, error);
+      
+      // Check for 429 or Resource Exhausted
+      if (error.status === 429 || error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('exhausted')) {
+        attempts++;
+        if (attempts >= maxAttempts) {
+           alert(`Gemini API Quota Exceeded. Please try again later.`);
+           return null;
+        }
+        console.log(`[Gemini Service] Quota hit. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2; // Exponential backoff
+        continue;
+      }
+      
+      // Other errors
+      alert(`Gemini API Error: ${error.message || error}`);
+      return null;
     }
-
-    return data;
-
-  } catch (error: any) {
-    console.error("Error fetching data from Gemini API:", error);
-    // Only alert if it's NOT a cache miss (which is normal) but an actual API error
-    alert(`Gemini API Error: ${error.message || error}`);
-    return null;
   }
+  return null;
 }
 
 // Schemas for dynamic destination fetching

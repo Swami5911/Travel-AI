@@ -21,17 +21,23 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   // API Config State
   const [showApiConfig, setShowApiConfig] = useState(false);
   const [geminiKey, setGeminiKey] = useState(localStorage.getItem('GEMINI_API_KEY') || '');
+  const [groqKey, setGroqKey] = useState(localStorage.getItem('GROQ_API_KEY') || '');
 
   const saveApiKey = () => {
     if (geminiKey.trim()) {
         localStorage.setItem('GEMINI_API_KEY', geminiKey.trim());
-        alert('API Key Saved Successfully!');
-        setShowApiConfig(false);
     } else {
         localStorage.removeItem('GEMINI_API_KEY');
-        alert('API Key Removed (Using default)');
-        setShowApiConfig(false);
     }
+
+    if (groqKey.trim()) {
+        localStorage.setItem('GROQ_API_KEY', groqKey.trim());
+    } else {
+        localStorage.removeItem('GROQ_API_KEY');
+    }
+    
+    alert('Configuration Update!');
+    setShowApiConfig(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -81,7 +87,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                     <Shield className="h-6 w-6 text-purple-400" /> Configure AI API
                 </h3>
                 <p className="text-slate-300 mb-6">
-                    To use your own Gemini API quota, enter your key below. This is stored locally on your device.
+                    Enter your personal API keys below to use your own quotas. Keys are stored locally on your device.
                 </p>
                 
                 <div className="space-y-4 mb-6">
@@ -95,23 +101,34 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                             placeholder="AIzaSy..."
                         />
                     </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-400 mb-2">Groq API Key (Optional - Faster)</label>
+                        <input 
+                            type="password" 
+                            value={groqKey}
+                            onChange={(e) => setGroqKey(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:border-orange-500 outline-none"
+                            placeholder="gsk_..."
+                        />
+                    </div>
                 </div>
 
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-6">
                     <h4 className="text-blue-300 font-bold mb-2 text-sm">How to get a key:</h4>
-                    <ol className="list-decimal list-inside text-sm text-slate-400 space-y-1">
-                        <li>Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-400 underline">Google AI Studio</a>.</li>
-                        <li>Click "Create API key".</li>
-                        <li>Copy the key and paste it above.</li>
-                    </ol>
+                    <ul className="list-disc list-inside text-sm text-slate-400 space-y-1">
+                        <li><strong>Gemini:</strong> <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-400 underline">Google AI Studio</a></li>
+                        <li><strong>Groq:</strong> <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="text-blue-400 underline">Groq Console</a></li>
+                    </ul>
                 </div>
 
-                <button 
-                    onClick={saveApiKey}
-                    className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded-xl transition-all"
-                >
-                    Save Configuration
-                </button>
+                <div className="flex gap-3">
+                    <button 
+                        onClick={saveApiKey}
+                        className="w-2/3 bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded-xl transition-all"
+                    >
+                        Save Configuration
+                    </button>
+                </div>
             </div>
         </div>
       )}

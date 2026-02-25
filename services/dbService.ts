@@ -141,6 +141,17 @@ class Database {
       }
       return null;
   }
+
+  async deleteUser(userId: string): Promise<boolean> {
+      await delay(300);
+      const initialLength = this.data.users.length;
+      this.data.users = this.data.users.filter(u => u.id !== userId);
+      if (this.data.users.length < initialLength) {
+          this.save();
+          return true;
+      }
+      return false;
+  }
 }
 
 export const db = new Database();

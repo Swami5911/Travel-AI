@@ -8,7 +8,7 @@ import SkeletonLoader from './SkeletonLoader';
 
 interface DestinationPageProps {
   onSelectCity: (city: { name: string; country: string }) => void;
-  provider?: 'gemini' | 'openai' | 'grok';
+  provider?: AIProvider;
   previousPlan?: Itinerary | null;
   onResumePlan?: () => void;
   history?: Itinerary[];
